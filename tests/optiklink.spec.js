@@ -67,8 +67,13 @@ async function handleOAuthPage(page) {
     await page.waitForTimeout(2000);
 
     for (let i = 0; i < 5; i++) {
+        if (!page.url().includes('discord.com')) {
+            console.log('  ✅ 已离开 Discord');
+            return;
+        }
+
         try {
-            const btn = await page.waitForSelector('button.primary_a22cb0', { timeout: 8000 });
+            const btn = await page.waitForSelector('button.primary_a22cb0', { timeout: 3000 });
             const text = (await btn.innerText()).trim();
             console.log(`  🔘 当前按钮: "${text}"`);
 
@@ -85,16 +90,11 @@ async function handleOAuthPage(page) {
                 await btn.click();
                 console.log('  ✅ 已点击（滚动后）');
                 await page.waitForTimeout(1500);
-
             } else if (/authorize/i.test(text) || text.includes('授权')) {
                 await btn.click();
                 console.log('  ✅ 已点击授权按钮');
                 await page.waitForTimeout(3000);
-                if (!page.url().includes('discord.com')) {
-                    console.log('  ✅ 授权成功，已跳转');
-                }
                 return;
-
             } else {
                 const disabled = await btn.isDisabled();
                 if (!disabled) {
@@ -103,12 +103,17 @@ async function handleOAuthPage(page) {
                     await page.waitForTimeout(1500);
                 } else {
                     console.log(`  ⏳ 按钮 disabled: "${text}"`);
-                    break;
                 }
             }
-        } catch (e) {
-            console.log(`  ℹ️ 授权按钮处理结束: ${e.message}`);
-            break;
+        } catch {
+            console.log('  ℹ️ 未找到授权按钮，等待自动跳转...');
+            try {
+                await page.waitForURL(url => !url.includes('discord.com'), { timeout: 10000 });
+                console.log('  ✅ 已自动跳转');
+            } catch {
+                console.log('  ⚠️ 等待跳转超时，继续重试...');
+            }
+            return;
         }
     }
 
@@ -150,11 +155,10 @@ test('OptikLink 保活', async () => {
         headless: true,
         proxy: proxyConfig,
     });
-    const context = await browser.newContext();
-    const page = await context.newPage();
+    const page = await browser.newPage();
     page.setDefaultTimeout(TIMEOUT);
 
-    await context.addInitScript(() => {
+    await page.addInitScript(() => {
         if (!location.hostname.includes('optiklink.net')) return;
 
         const AD_DOMAINS = [
@@ -304,26 +308,24 @@ test('OptikLink 保活', async () => {
         await page.waitForTimeout(2000);
 
         console.log('📤 点击 Panel Login...');
-        const [panelPage] = await Promise.all([
-            context.waitForEvent('page'),
-            page.click('a[href="https://control.optiklink.net/auth/login"]'),
-        ]);
+        await page.click('a[href="https://control.optiklink.net/auth/login"]');
 
-        panelPage.setDefaultTimeout(TIMEOUT);
         console.log('⏳ 等待跳转控制台登录页...');
-        await panelPage.waitForURL(/control\.optiklink\.net\/auth\/login/, { timeout: TIMEOUT });
-        console.log(`✅ 已到达控制台登录页：${panelPage.url()}`);
+        await page.waitForURL(/control\.optiklink\.net\/auth\/login/, { timeout: TIMEOUT });
+        console.log(`✅ 已到达控制台登录页：${page.url()}`);
 
         console.log('✏️ 填写控制台账号密码...');
-        await panelPage.fill('input[name="username"]', panelUser);
-        await panelPage.fill('input[name="password"]', panelPass);
+        await page.fill('input[name="username"]', panelUser);
+        await page.fill('input[name="password"]', panelPass);
 
         console.log('📤 提交控制台登录...');
-        await panelPage.click('span.sc-1qu1gou-2:has-text("Login")');
+        await page.click('span.sc-1qu1gou-2:has-text("Login")');
 
         console.log('⏳ 确认到达控制台首页...');
-        await panelPage.waitForURL(/control\.optiklink\.net\/$/, { timeout: TIMEOUT });
-        console.log(`✅ 控制台登录成功！当前：${panelPage.url()}`);
+        await page.waitForURL(/control\.optiklink\.net\/$/, { timeout: TIMEOUT });
+        console.log(`✅ 控制台登录成功！当前：${page.url()}`);
+
+        const panelPage = page;
 
         console.log('🔍 查找服务器...');
         await panelPage.waitForTimeout(2000);
@@ -341,14 +343,19 @@ test('OptikLink 保活', async () => {
         if (!serverInfo) throw new Error('❌ 未找到服务器卡片');
         console.log(`✅ 找到服务器：${serverInfo.name} (${serverInfo.id})`);
 
-        const [serverPage] = await Promise.all([
-            context.waitForEvent('page'),
-            panelPage.click('a[href*="/server/"]'),
-        ]);
+        const serverUrlPattern = new RegExp(`control\\.optiklink\\.net/server/${serverInfo.id}`);
 
-        serverPage.setDefaultTimeout(TIMEOUT);
-        await serverPage.waitForURL(new RegExp(`control\\.optiklink\\.net/server/${serverInfo.id}`), { timeout: TIMEOUT });
-        console.log(`✅ 已到达服务器页面：${serverPage.url()}`);
+        await panelPage.click('a[href*="/server/"]');
+
+        if (panelPage.url().includes('discord.com/oauth2')) {
+            console.log('🔍 服务器页触发二次 OAuth，处理中...');
+            await handleOAuthPage(panelPage);
+        }
+
+        await panelPage.waitForURL(serverUrlPattern, { timeout: TIMEOUT });
+        console.log(`✅ 已到达服务器页面：${panelPage.url()}`);
+
+        const serverPage = panelPage;
 
         console.log('🔍 检查服务器状态...');
         await serverPage.waitForTimeout(3000);
