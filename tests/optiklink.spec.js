@@ -368,7 +368,7 @@ test('OptikLink 保活', async ({ }, testInfo) => {
 
         if (statusText.toLowerCase().includes('running')) {
             console.log('🎉 保活成功！');
-            await sendTG('✅ 保活成功！\n服务器状态：🚀 Running', serverInfo.name);
+            await sendTG('✅ 保活成功！\n💻 服务器状态：🚀 Running', serverInfo.name);
         } else if (statusText.toLowerCase().includes('offline')) {
             console.log('⚠️ 服务器离线，尝试启动...');
             await serverPage.click('button:has-text("Start")');
