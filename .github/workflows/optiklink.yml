@@ -2,7 +2,7 @@ name: 🎮 OptikLink-Keep
 
 on:
   schedule:
-    - cron: '59 1 * * *'  # ✅ 每天执行
+    - cron: '59 1 * * *'
   workflow_dispatch:
 
 jobs:
@@ -12,6 +12,29 @@ jobs:
     timeout-minutes: 10
 
     steps:
+      # ✅ 最前面判断（关键优化点）
+      - name: ⏳ 判断是否执行
+        run: |
+          START="2026-05-08"
+          TODAY=$(date +%Y-%m-%d)
+
+          echo "📅 今天: $TODAY | 起始: $START"
+
+          start_ts=$(date -d "$START" +%s)
+          today_ts=$(date -d "$TODAY" +%s)
+
+          diff_days=$(( (today_ts - start_ts) / 86400 ))
+
+          if [ $diff_days -lt 0 ]; then
+            echo "⛔ 未到开始日期，直接退出"
+            exit 0
+          elif [ $((diff_days % 3)) -ne 0 ]; then
+            echo "⏭️ 非执行日（每3天），直接退出"
+            exit 0
+          else
+            echo "✅ 命中执行日，继续任务"
+          fi
+
       - name: 📥 拉取代码
         uses: actions/checkout@v4
 
@@ -26,33 +49,8 @@ jobs:
       - name: 🌐 安装 Playwright 浏览器
         run: npx playwright install chromium --with-deps
 
-      # ✅ 核心：控制“5月8日 + 每3天”
-      - name: ⏳ 判断是否执行
-        id: check_date
-        run: |
-          START="2026-05-08"
-          TODAY=$(date +%Y-%m-%d)
-
-          echo "📅 今天: $TODAY | 起始: $START"
-
-          start_ts=$(date -d "$START" +%s)
-          today_ts=$(date -d "$TODAY" +%s)
-
-          diff_days=$(( (today_ts - start_ts) / 86400 ))
-
-          if [ $diff_days -lt 0 ]; then
-            echo "skip=true" >> $GITHUB_OUTPUT
-            echo "⛔ 未到开始日期"
-          elif [ $((diff_days % 3)) -ne 0 ]; then
-            echo "skip=true" >> $GITHUB_OUTPUT
-            echo "⏭️ 今天不在执行周期（每3天）"
-          else
-            echo "skip=false" >> $GITHUB_OUTPUT
-            echo "✅ 命中执行日"
-          fi
-
       - name: 🛡️ 启动 GOST 代理转发
-        if: ${{ env.GOST_PROXY != '' && steps.check_date.outputs.skip != 'true' }}
+        if: ${{ env.GOST_PROXY != '' }}
         env:
           GOST_PROXY: ${{ secrets.GOST_PROXY }}
         run: |
@@ -67,7 +65,6 @@ jobs:
           curl -s -x http://127.0.0.1:8080 https://api.ipify.org | sed 's/\([0-9]*\.[0-9]*\.[0-9]*\.\)[0-9]*/\1**/g'
 
       - name: 🚀 运行保活脚本
-        if: ${{ steps.check_date.outputs.skip != 'true' }}
         env:
           DISCORD_ACCOUNT: ${{ secrets.DISCORD_ACCOUNT }}
           PANEL_ACCOUNT:   ${{ secrets.PANEL_ACCOUNT }}
@@ -76,7 +73,7 @@ jobs:
         run: npx playwright test
 
       - name: 📸 上传失败截图
-        if: ${{ failure() && steps.check_date.outputs.skip != 'true' }}
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: failure-screenshots
