@@ -6,14 +6,14 @@ on:
   workflow_dispatch:
 
 jobs:
-  keepalive:
-    name: 🔄 执行保活
+  check:
+    name: ⏳ 判断是否执行
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    outputs:
+      should_run: ${{ steps.check.outputs.should_run }}
 
     steps:
-      # ✅ 最前面判断（关键优化点）
-      - name: ⏳ 判断是否执行
+      - id: check
         run: |
           START="2026-05-08"
           TODAY=$(date +%Y-%m-%d)
@@ -26,15 +26,24 @@ jobs:
           diff_days=$(( (today_ts - start_ts) / 86400 ))
 
           if [ $diff_days -lt 0 ]; then
-            echo "⛔ 未到开始日期，直接退出"
-            exit 0
+            echo "should_run=false" >> $GITHUB_OUTPUT
+            echo "⛔ 未到开始日期"
           elif [ $((diff_days % 3)) -ne 0 ]; then
-            echo "⏭️ 非执行日（每3天），直接退出"
-            exit 0
+            echo "should_run=false" >> $GITHUB_OUTPUT
+            echo "⏭️ 非执行日"
           else
-            echo "✅ 命中执行日，继续任务"
+            echo "should_run=true" >> $GITHUB_OUTPUT
+            echo "✅ 执行"
           fi
 
+  keepalive:
+    name: 🔄 执行保活
+    needs: check
+    if: needs.check.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
       - name: 📥 拉取代码
         uses: actions/checkout@v4
 
